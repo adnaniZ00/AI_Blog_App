@@ -13,10 +13,11 @@ import assemblyai as aai
 from .models import BlogPost
 import google.generativeai as genai
 from django.http import HttpResponseBadRequest
-import time
+from googleapiclient.discovery import build
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
 
 # Configure the Gemini API key
@@ -42,10 +43,14 @@ def generate_blog(request):
         except (KeyError, json.JSONDecodeError):
             return JsonResponse({'error': 'Invalid data sent'}, status=400)
         
-        # Get YouTube video title
-        title = yt_title(yt_link)
-        sanitized_title = sanitize_title(title)
+        # Get YouTube video details
+        video_id = extract_video_id(yt_link)
+        video_details = get_video_details(video_id)
+        
+        if not video_details:
+            return JsonResponse({'error': "Failed to get video details"}, status=500)
 
+        title = video_details['title']
         # Get transcript
         transcription = get_transcription(yt_link)
         if not transcription:
@@ -71,16 +76,19 @@ def generate_blog(request):
         return JsonResponse({'error': 'Invalid request method'}, status=405)
 
 
-def yt_title(link):
-    time.sleep(2)
-    with yt_dlp.YoutubeDL({'cookiefile': settings.YOUTUBE_COOKIES_FILE}) as ydl:
-        try:
-            info_dict = ydl.extract_info(link, download=False)
-            title = info_dict.get('title', 'Untitled Video')
-            return title
-        except Exception as e:
-            print(f"Error retrieving video title with yt-dlp: {e}")
-            return "Untitled Video"
+def extract_video_id(url):
+    # Regex to extract the video ID from a YouTube URL
+    regex = r'(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})'
+    match = re.search(regex, url)
+    return match.group(1) if match else None   
+
+def get_video_details(video_id):
+    youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
+    request = youtube.videos().list(part='snippet', id=video_id)
+    response = request.execute()
+    if response['items']:
+        return response['items'][0]['snippet']
+    return None
     
 
 def sanitize_title(title):

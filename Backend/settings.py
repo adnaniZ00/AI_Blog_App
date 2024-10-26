@@ -36,7 +36,11 @@ SECRET_KEY = 'django-insecure-l%7$kbob@-is+=rlid-zg#l#ijf64j1dhzyfw1s!%r77r%py&7
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-YOUTUBE_COOKIES_FILE = os.path.join(BASE_DIR, 'cookies.txt') if DEBUG else 'etc/secrets/cookies.txt'
+# YOUTUBE_COOKIES_FILE = os.path.join(BASE_DIR, 'cookies.txt') if DEBUG else 'etc/secrets/cookies.txt'
+
+YOUTUBE_COOKIES_FILE = os.getenv('YOUTUBE_COOKIES')
+
+YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY')
 
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'ai-blog-app-afz1.onrender.com' ]
 
