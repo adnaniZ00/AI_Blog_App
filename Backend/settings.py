@@ -25,6 +25,8 @@ DATABASE_URL = os.getenv('DATABASE_URL')
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Add the following in your settings.py
+YOUTUBE_COOKIES_FILE = os.path.join(BASE_DIR, 'cookies.txt')
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/

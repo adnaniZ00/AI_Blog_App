@@ -6,7 +6,6 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 from django.conf import settings
 import json
-from pytube import YouTube
 import yt_dlp   # Import yt-dlp as youtube_dl
 import os
 import re
@@ -14,9 +13,11 @@ import assemblyai as aai
 from .models import BlogPost
 import google.generativeai as genai
 from django.http import HttpResponseBadRequest
+import time
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
+
 
 # Configure the Gemini API key
 genai.configure(api_key=GEMINI_API_KEY)  # Replace with your Gemini API key
@@ -34,6 +35,41 @@ def index(request):
 @csrf_exempt
 @login_required
 def generate_blog(request):
+    # if request.method == 'POST':
+    #     try:
+    #         data = json.loads(request.body)
+    #         yt_link = data['link']
+    #     except (KeyError, json.JSONDecodeError):
+    #         return JsonResponse({'error': 'Invalid data sent'}, status=400)
+        
+    #     # Get YouTube video title
+    #     title = yt_title(yt_link)
+    #     sanitized_title = sanitize_title(title)
+
+    #     # Get transcript
+    #     transcription = get_transcription(yt_link)
+    #     if not transcription:
+    #         return JsonResponse({'error': "Failed to get transcript"}, status=500)
+
+    #     # Generate blog content from transcription
+    #     blog_content = generate_blog_from_transcription(transcription)
+    #     if not blog_content:
+    #         return JsonResponse({'error': "Failed to generate blog article"}, status=500)
+
+    #     # Save blog article to database
+    #     new_blog_article = BlogPost.objects.create(
+    #         user=request.user,
+    #         youtube_title=title,
+    #         youtube_link=yt_link,
+    #         generated_content=blog_content,
+    #     )
+    #     new_blog_article.save()
+
+    #     # Return blog article as a response
+    #     return JsonResponse({'content': blog_content})
+    # else:
+    #     return JsonResponse({'error': 'Invalid request method'}, status=405)
+
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
@@ -69,8 +105,20 @@ def generate_blog(request):
     else:
         return JsonResponse({'error': 'Invalid request method'}, status=405)
 
+
 def yt_title(link):
-    with yt_dlp.YoutubeDL() as ydl:
+    # time.sleep(2)
+    # with yt_dlp.YoutubeDL() as ydl:
+    #     try:
+    #         info_dict = ydl.extract_info(link, download=False)
+    #         title = info_dict.get('title', 'Untitled Video')
+    #         return title
+    #     except Exception as e:
+    #         print(f"Error retrieving video title with yt-dlp: {e}")
+    #         return "Untitled Video"
+
+    time.sleep(2)
+    with yt_dlp.YoutubeDL({'cookiefile': settings.YOUTUBE_COOKIES_FILE}) as ydl:
         try:
             info_dict = ydl.extract_info(link, download=False)
             title = info_dict.get('title', 'Untitled Video')
@@ -90,8 +138,31 @@ def sanitize_title(title):
 
 def download_audio(link):
 
+    # # Extract YouTube video info
+    # with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+    #     info_dict = ydl.extract_info(link, download=False)
+    #     title = info_dict.get('title', 'audio')
+    #     sanitized_title = sanitize_title(title)
+
+    # # Update options for yt-dlp
+    # ydl_opts = {
+    #     'format': 'bestaudio/best',
+    #     'outtmpl': os.path.join(settings.MEDIA_ROOT, f'{sanitized_title}.%(ext)s'),
+    #     'postprocessors': [{
+    #         'key': 'FFmpegExtractAudio',
+    #         'preferredcodec': 'mp3',
+    #         'preferredquality': '192',
+    #     }],
+    #     'ffmpeg_location': 'C:/ProgramData/chocolatey/bin',  # Adjust path if necessary
+    # }
+    
+    # # Download the audio
+    # with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    #     ydl.download([link])
+    #     return os.path.join(settings.MEDIA_ROOT, f"{sanitized_title}.mp3")
+
     # Extract YouTube video info
-    with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
+    with yt_dlp.YoutubeDL({'quiet': True, 'cookiefile': settings.YOUTUBE_COOKIES_FILE}) as ydl:
         info_dict = ydl.extract_info(link, download=False)
         title = info_dict.get('title', 'audio')
         sanitized_title = sanitize_title(title)
