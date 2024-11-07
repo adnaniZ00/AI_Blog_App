@@ -14,6 +14,9 @@ from .models import BlogPost
 import google.generativeai as genai
 from django.http import HttpResponseBadRequest
 from googleapiclient.discovery import build
+import logging
+
+logger = logging.getLogger(__name__)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
@@ -39,39 +42,45 @@ def generate_blog(request):
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
-            yt_link = data['link']
-        except (KeyError, json.JSONDecodeError):
-            return JsonResponse({'error': 'Invalid data sent'}, status=400)
+            yt_link = data.get('link')
+            if not yt_link:
+                return JsonResponse({'error': 'YouTube link is required.'}, status=400)
+            
+            # Get YouTube video details
+            video_id = extract_video_id(yt_link)
+            video_details = get_video_details(video_id)
+            if not video_details:
+                return JsonResponse({'error': "Failed to get video details"}, status=500)
+            
+            title = video_details.get('title')
+            if not title:
+                return JsonResponse({'error': "Video title not found"}, status=500)
+            
+            # Get transcription
+            transcription = get_transcription(yt_link)
+            if not transcription:
+                return JsonResponse({'error': "Failed to get transcript"}, status=500)
+            
+            # Generate blog content from transcription
+            blog_content = generate_blog_from_transcription(transcription)
+            if not blog_content:
+                return JsonResponse({'error': "Failed to generate blog article"}, status=500)
+            
+            # Save blog article to database
+            new_blog_article = BlogPost.objects.create(
+                user=request.user,
+                youtube_title=title,
+                youtube_link=yt_link,
+                generated_content=blog_content,
+            )
+            new_blog_article.save()
+            
+            # Return blog article as a response
+            return JsonResponse({'content': blog_content})
         
-        # Get YouTube video details
-        video_id = extract_video_id(yt_link)
-        video_details = get_video_details(video_id)
-        
-        if not video_details:
-            return JsonResponse({'error': "Failed to get video details"}, status=500)
-
-        title = video_details['title']
-        # Get transcript
-        transcription = get_transcription(yt_link)
-        if not transcription:
-            return JsonResponse({'error': "Failed to get transcript"}, status=500)
-
-        # Generate blog content from transcription
-        blog_content = generate_blog_from_transcription(transcription)
-        if not blog_content:
-            return JsonResponse({'error': "Failed to generate blog article"}, status=500)
-
-        # Save blog article to database
-        new_blog_article = BlogPost.objects.create(
-            user=request.user,
-            youtube_title=title,
-            youtube_link=yt_link,
-            generated_content=blog_content,
-        )
-        new_blog_article.save()
-
-        # Return blog article as a response
-        return JsonResponse({'content': blog_content})
+        except Exception as e:
+            logger.error(f"Error in generate_blog: {e}")
+            return JsonResponse({'error': "Internal server error"}, status=500)
     else:
         return JsonResponse({'error': 'Invalid request method'}, status=405)
 
@@ -125,34 +134,50 @@ def download_audio(link):
         
 
 def get_transcription(link):
-
-        audio_file = download_audio(link)
-        aai.settings.api_key = ASSEMBLYAI_API_KEY  # Replace with your AssemblyAI API key
-
-        transcriber = aai.Transcriber()
-        transcript = transcriber.transcribe(audio_file)
-
-        return transcript.text
-   
+        try:
+            audio_file = download_audio(link)
+            if not audio_file:
+                raise Exception("Failed to download audio.")
+            
+            aai.settings.api_key = ASSEMBLYAI_API_KEY
+            transcriber = aai.Transcriber()
+            transcript = transcriber.transcribe(audio_file)
+            
+            if not transcript or not transcript.text:
+                raise Exception("Transcription failed or returned empty.")
+            
+            return transcript.text
+    
+        except Exception as e:
+            logger.error(f"Error in get_transcription: {e}")
+            return None
         
 
 def generate_blog_from_transcription(transcription):
-        
-        # Set up the prompt for Generative AI
-        prompt = f"Based on the following transcript from a YouTube video, write a comprehensive blog article. The content should be well-structured and engaging, avoiding a direct YouTube video tone:\n\n{transcription}\n\nArticle:"
-
-        # Call the Generative API to generate blog content
-        response = model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
-                max_output_tokens=1000,  # Adjust as needed
-                temperature=0.7  # Adjust for more creativity or coherence
+        try:
+            # Set up the prompt for Generative AI
+            prompt = (
+                f"Based on the following transcript from a YouTube video, write a comprehensive blog article. "
+                f"The content should be well-structured and engaging, avoiding a direct YouTube video tone:\n\n{transcription}\n\nArticle:"
             )
-        )
-        
-        # Extract the generated content from the response
-        generated_content = response.text.strip()
-        return generated_content
+            
+            # Call the Generative API to generate blog content
+            response = model.generate_content(
+                prompt,
+                generation_config=genai.types.GenerationConfig(
+                    max_output_tokens=1000,  # Adjust as needed
+                    temperature=0.7  # Adjust for more creativity or coherence
+                )
+            )
+            
+            if not response or not response.text:
+                raise Exception("Failed to generate content or received empty response.")
+            
+            return response.text.strip()
+    
+        except Exception as e:
+            logger.error(f"Error in generate_blog_from_transcription: {e}")
+            return None
 
 @login_required
 def blog_list(request):
