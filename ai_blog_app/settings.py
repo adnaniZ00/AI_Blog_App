@@ -14,6 +14,11 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 
+
+DATABASES = {
+    'default': dj_database_url.config(conn_max_age=600, ssl_require=True)
+}
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -122,6 +127,8 @@ DATABASES = {
 # Static files settings
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+
+ALLOWED_HOSTS = ['*']
 
 # This line collects static files into STATIC_ROOT directory
 # Run this during deployment
