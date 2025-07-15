@@ -108,6 +108,30 @@ def sanitize_title(title):
     return title
     
 
+# def download_audio(link):
+#     # Extract YouTube video info
+#     with yt_dlp.YoutubeDL({'quiet': True, 'cookiefile': settings.YOUTUBE_COOKIES_FILE}) as ydl:
+#         info_dict = ydl.extract_info(link, download=False)
+#         title = info_dict.get('title', 'audio')
+#         sanitized_title = sanitize_title(title)
+
+#     # Update options for yt-dlp
+#     ydl_opts = {
+#         'format': 'bestaudio/best',
+#         'outtmpl': os.path.join(settings.MEDIA_ROOT, f'{sanitized_title}.%(ext)s'),
+#         'postprocessors': [{
+#             'key': 'FFmpegExtractAudio',
+#             'preferredcodec': 'mp3',
+#             'preferredquality': '192',
+#         }],
+#         'ffmpeg_location': 'C:/ProgramData/chocolatey/bin',  # Adjust path if necessary
+#     }
+    
+#     # Download the audio
+#     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+#         ydl.download([link])
+#         return os.path.join(settings.MEDIA_ROOT, f"{sanitized_title}.mp3")
+
 def download_audio(link):
     # Extract YouTube video info
     with yt_dlp.YoutubeDL({'quiet': True, 'cookiefile': settings.YOUTUBE_COOKIES_FILE}) as ydl:
@@ -115,22 +139,25 @@ def download_audio(link):
         title = info_dict.get('title', 'audio')
         sanitized_title = sanitize_title(title)
 
+    # Use a temporary directory instead of MEDIA_ROOT
+    temp_dir = '/tmp'
+    audio_path = os.path.join(temp_dir, f'{sanitized_title}.mp3')
+
     # Update options for yt-dlp
     ydl_opts = {
         'format': 'bestaudio/best',
-        'outtmpl': os.path.join(settings.MEDIA_ROOT, f'{sanitized_title}.%(ext)s'),
+        'outtmpl': os.path.join(temp_dir, f'{sanitized_title}.%(ext)s'),
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
-        'ffmpeg_location': 'C:/ProgramData/chocolatey/bin',  # Adjust path if necessary
     }
-    
+
     # Download the audio
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([link])
-        return os.path.join(settings.MEDIA_ROOT, f"{sanitized_title}.mp3")
+        return audio_path # Return the full path to the temporary file
         
 
 def get_transcription(link):
