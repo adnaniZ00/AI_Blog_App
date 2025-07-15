@@ -513,8 +513,6 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 from django.conf import settings
 import json
-# yt_dlp is no longer needed
-# import yt_dlp 
 import os
 import re
 from .models import BlogPost
@@ -522,32 +520,58 @@ import google.generativeai as genai
 from django.http import HttpResponseBadRequest
 from googleapiclient.discovery import build
 import logging
-from xml.etree import ElementTree # Needed to parse the caption file
+# New imports for Service Account authentication
+import google.oauth2.service_account
+import io
 
 logger = logging.getLogger(__name__)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY") # Still needed for simple lookups
 
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-# --- NEW, OFFICIAL API-BASED TRANSCRIPT FUNCTION ---
+# --- NEW FUNCTION TO BUILD THE YOUTUBE SERVICE WITH OAUTH2 ---
+def get_youtube_service():
+    """
+    Builds the YouTube service object using Service Account credentials.
+    """
+    # Get the JSON key file content from the environment variable
+    creds_json_str = os.getenv('GOOGLE_CREDENTIALS_JSON')
+    if not creds_json_str:
+        logger.error("GOOGLE_CREDENTIALS_JSON environment variable not found.")
+        return None
+
+    try:
+        # Load the credentials from the JSON string
+        credentials = google.oauth2.service_account.Credentials.from_service_account_info(
+            json.loads(creds_json_str),
+            scopes=['https://www.googleapis.com/auth/youtube.force-ssl']
+        )
+        # Build and return the service object
+        return build('youtube', 'v3', credentials=credentials)
+    except Exception as e:
+        logger.error(f"Failed to build YouTube service with credentials: {e}")
+        return None
+
+
+# --- UPDATED TRANSCRIPT FUNCTION USING THE NEW SERVICE ---
 def get_transcript_from_api(video_id):
     """
-    Fetches a video transcript using the official YouTube Data API.
+    Fetches a video transcript using the official YouTube Data API with OAuth2.
     """
     try:
-        youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
+        youtube_service = get_youtube_service()
+        if not youtube_service:
+            raise Exception("Could not build authenticated YouTube service.")
         
-        # 1. Get the list of available captions for the video
-        caption_list_response = youtube.captions().list(
+        caption_list_response = youtube_service.captions().list(
             part='snippet',
             videoId=video_id
         ).execute()
 
         caption_id = None
-        # 2. Find the English caption track
         for item in caption_list_response.get('items', []):
             if item['snippet']['language'] == 'en':
                 caption_id = item['id']
@@ -557,16 +581,11 @@ def get_transcript_from_api(video_id):
             logger.error(f"No English captions found for video ID: {video_id}")
             return None
 
-        # 3. Download the caption track content
-        caption_download_response = youtube.captions().download(
-            id=caption_id,
-            # tfmt='ttml' # You can request different formats, API returns plain text by default
+        caption_download_response = youtube_service.captions().download(
+            id=caption_id
         ).execute()
         
-        # The response is the raw text of the captions.
-        # We will do a simple cleanup to join lines.
         transcript = caption_download_response
-        # The raw text often has newlines, let's join it into a single block
         transcript_text = " ".join(transcript.splitlines())
         
         logger.info(f"Successfully fetched transcript for video ID: {video_id} using the API.")
@@ -574,7 +593,6 @@ def get_transcript_from_api(video_id):
 
     except Exception as e:
         logger.error(f"An exception occurred in get_transcript_from_api: {e}")
-        # This can happen if captions are disabled for the video
         if 'captionsNotAvailable' in str(e):
             logger.error(f"Captions are not available for video {video_id}.")
         return None
@@ -608,7 +626,6 @@ def generate_blog(request):
             if not title:
                 return JsonResponse({'error': "Video title not found"}, status=500)
             
-            # --- USE THE NEW, OFFICIAL API TRANSCRIPT FUNCTION ---
             transcription = get_transcript_from_api(video_id)
             if not transcription:
                 return JsonResponse({'error': "Failed to get video transcript. The video may not have captions available or they may be disabled."}, status=500)
@@ -639,6 +656,7 @@ def extract_video_id(url):
     match = re.search(regex, url)
     return match.group(1) if match else None
 
+# This function still uses the simple API key, which is fine for public metadata.
 def get_video_details(video_id):
     youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
     request = youtube.videos().list(part='snippet', id=video_id)
@@ -667,6 +685,7 @@ def generate_blog_from_transcription(transcription):
         logger.error(f"Error in generate_blog_from_transcription: {e}")
         return None
 
+# ... (The rest of your views for login, signup, etc. remain the same)
 @login_required
 def blog_list(request):
     blog_articles = BlogPost.objects.filter(user=request.user)
