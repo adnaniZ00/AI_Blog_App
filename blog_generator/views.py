@@ -280,7 +280,7 @@ import google.generativeai as genai
 from django.http import HttpResponseBadRequest
 from googleapiclient.discovery import build
 import logging
-import tempfile # Make sure to add this import
+import tempfile
 
 logger = logging.getLogger(__name__)
 
@@ -288,13 +288,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
-
-# Configure the Gemini API key
 genai.configure(api_key=GEMINI_API_KEY)
-
-# Initialize the model
 model = genai.GenerativeModel('gemini-1.5-flash')
-
 
 @login_required
 def index(request):
@@ -345,7 +340,6 @@ def generate_blog(request):
     else:
         return JsonResponse({'error': 'Invalid request method'}, status=405)
 
-
 def extract_video_id(url):
     regex = r'(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})'
     match = re.search(regex, url)
@@ -369,95 +363,73 @@ def download_audio(link):
     cookie_content = os.getenv('YOUTUBE_COOKIES')
     cookie_file_path = None
     
-    # --- DEBUGGING LOGS ---
-    if cookie_content:
-        logger.info("DEBUG: Found YOUTUBE_COOKIES environment variable.")
-        logger.info(f"DEBUG: Cookie content starts with: {cookie_content[:50]}")
-    else:
-        logger.warning("DEBUG: YOUTUBE_COOKIES environment variable not found or is empty.")
-    # ----------------------
-
     if cookie_content:
         try:
             with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt', encoding='utf-8') as temp_cookie_file:
                 temp_cookie_file.write(cookie_content)
                 cookie_file_path = temp_cookie_file.name
-                # --- DEBUGGING LOGS ---
-                logger.info(f"DEBUG: Successfully created temporary cookie file at: {cookie_file_path}")
-                # ----------------------
         except Exception as e:
-            logger.error(f"DEBUG: Failed to create temporary cookie file: {e}")
+            logger.error(f"Failed to create temporary cookie file: {e}")
             cookie_file_path = None
 
     try:
         ydl_opts = {
             'format': 'bestaudio/best',
-            'outtmpl': '/tmp/%(title)s.%(ext)s', # Simplified output template
+            'outtmpl': '/tmp/%(title)s.%(ext)s',
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
                 'preferredquality': '192',
             }],
             'cookiefile': cookie_file_path,
-            'quiet': False, # Set to False to get more verbose output from yt-dlp
+            'quiet': False,
+            # --- ADD THIS NEW OPTION ---
+            'http_headers': {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.5',
+            },
+            # ---------------------------
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # --- DEBUGGING LOGS ---
-            logger.info("DEBUG: Initializing yt-dlp with options.")
-            # ----------------------
             info_dict = ydl.extract_info(link, download=True)
-            # When download=True, the filename is in the info_dict
-            sanitized_title = sanitize_title(info_dict.get('title', 'audio'))
-            # The actual path where yt-dlp saved the file
             downloaded_file_path = ydl.prepare_filename(info_dict).replace('.webm', '.mp3').replace('.m4a', '.mp3')
-            logger.info(f"DEBUG: yt-dlp finished. Audio should be at: {downloaded_file_path}")
             return downloaded_file_path
 
     except Exception as e:
-        logger.error(f"DEBUG: An exception occurred in yt-dlp process: {e}")
-        raise # Re-raise the exception to be caught by the outer try-except block
+        logger.error(f"An exception occurred in yt-dlp process: {e}")
+        raise
 
     finally:
         if cookie_file_path and os.path.exists(cookie_file_path):
             try:
                 os.remove(cookie_file_path)
-                logger.info(f"DEBUG: Successfully deleted temporary cookie file: {cookie_file_path}")
             except Exception as e:
-                logger.error(f"DEBUG: Failed to delete temporary cookie file: {e}")
-
+                logger.error(f"Failed to delete temporary cookie file: {e}")
 
 def get_transcription(link):
     try:
         audio_file = download_audio(link)
         if not audio_file or not os.path.exists(audio_file):
-            logger.error(f"DEBUG: download_audio did not return a valid file path. Got: {audio_file}")
             raise Exception("Failed to download audio or file not found.")
         
-        logger.info(f"DEBUG: Starting transcription for file: {audio_file}")
         aai.settings.api_key = ASSEMBLYAI_API_KEY
         transcriber = aai.Transcriber()
         transcript = transcriber.transcribe(audio_file)
         
         if transcript.error:
-             logger.error(f"DEBUG: AssemblyAI transcription error: {transcript.error}")
              raise Exception(f"Transcription failed: {transcript.error}")
 
         if not transcript or not transcript.text:
             raise Exception("Transcription failed or returned empty.")
         
-        logger.info("DEBUG: Transcription successful.")
-        # Clean up the downloaded audio file
         os.remove(audio_file)
-        logger.info(f"DEBUG: Cleaned up audio file: {audio_file}")
         return transcript.text
     
     except Exception as e:
         logger.error(f"Error in get_transcription: {e}")
         return None
 
-# (The rest of your views.py functions remain the same)
-# ... (generate_blog_from_transcription, blog_list, etc.) ...
 def generate_blog_from_transcription(transcription):
     try:
         prompt = (
