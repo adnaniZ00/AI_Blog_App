@@ -513,76 +513,70 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 from django.conf import settings
 import json
-import yt_dlp
+# yt_dlp is no longer needed
+# import yt_dlp 
 import os
 import re
-# No longer needed: import assemblyai as aai
 from .models import BlogPost
 import google.generativeai as genai
 from django.http import HttpResponseBadRequest
 from googleapiclient.discovery import build
 import logging
+from xml.etree import ElementTree # Needed to parse the caption file
 
 logger = logging.getLogger(__name__)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-# No longer needed: ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-# --- NEW FUNCTION TO GET TRANSCRIPT DIRECTLY ---
-def get_youtube_transcript(link):
+# --- NEW, OFFICIAL API-BASED TRANSCRIPT FUNCTION ---
+def get_transcript_from_api(video_id):
     """
-    Downloads the auto-generated subtitle/transcript for a YouTube video.
+    Fetches a video transcript using the official YouTube Data API.
     """
-    logger.info(f"Attempting to get transcript for link: {link}")
-    
-    ydl_opts = {
-        'writesubtitles': True,      # Tell yt-dlp to download subtitles
-        'writeautomaticsub': True,   # Download auto-generated subtitles
-        'subtitleslangs': ['en'],    # We want English subtitles
-        'skip_download': True,       # VERY IMPORTANT: Don't download the video itself
-        'outtmpl': '/tmp/%(id)s',     # Save subtitle file to /tmp directory with video ID as name
-        'quiet': False,
-    }
-
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(link, download=True)
-            video_id = info.get('id')
-            if not video_id:
-                logger.error("Could not extract video ID from yt-dlp info.")
-                return None
-            
-            # The expected path of the downloaded subtitle file (.vtt format)
-            subtitle_path = f"/tmp/{video_id}.en.vtt"
-            logger.info(f"Checking for subtitle file at: {subtitle_path}")
+        youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
+        
+        # 1. Get the list of available captions for the video
+        caption_list_response = youtube.captions().list(
+            part='snippet',
+            videoId=video_id
+        ).execute()
 
-            if os.path.exists(subtitle_path):
-                with open(subtitle_path, 'r', encoding='utf-8') as f:
-                    # VTT files have metadata, we need to strip it to get the plain text.
-                    lines = f.readlines()
-                    transcript_lines = []
-                    for line in lines:
-                        # Skip metadata, timestamps, and empty lines
-                        if '-->' in line or line.strip().isdigit() or line.strip() == 'WEBVTT' or not line.strip():
-                            continue
-                        transcript_lines.append(line.strip())
-                
-                # Clean up the subtitle file immediately
-                os.remove(subtitle_path)
-                
-                # Join the lines to form the full transcript
-                full_transcript = " ".join(transcript_lines)
-                logger.info("Successfully extracted transcript from VTT file.")
-                return full_transcript
-            else:
-                logger.error(f"Subtitle file not found at the expected path after yt-dlp run.")
-                return None
+        caption_id = None
+        # 2. Find the English caption track
+        for item in caption_list_response.get('items', []):
+            if item['snippet']['language'] == 'en':
+                caption_id = item['id']
+                break
+        
+        if not caption_id:
+            logger.error(f"No English captions found for video ID: {video_id}")
+            return None
+
+        # 3. Download the caption track content
+        caption_download_response = youtube.captions().download(
+            id=caption_id,
+            # tfmt='ttml' # You can request different formats, API returns plain text by default
+        ).execute()
+        
+        # The response is the raw text of the captions.
+        # We will do a simple cleanup to join lines.
+        transcript = caption_download_response
+        # The raw text often has newlines, let's join it into a single block
+        transcript_text = " ".join(transcript.splitlines())
+        
+        logger.info(f"Successfully fetched transcript for video ID: {video_id} using the API.")
+        return transcript_text
+
     except Exception as e:
-        logger.error(f"An exception occurred in get_youtube_transcript: {e}")
+        logger.error(f"An exception occurred in get_transcript_from_api: {e}")
+        # This can happen if captions are disabled for the video
+        if 'captionsNotAvailable' in str(e):
+            logger.error(f"Captions are not available for video {video_id}.")
         return None
 
 
@@ -603,6 +597,9 @@ def generate_blog(request):
                 return JsonResponse({'error': 'YouTube link is required.'}, status=400)
             
             video_id = extract_video_id(yt_link)
+            if not video_id:
+                return JsonResponse({'error': "Invalid YouTube link provided."}, status=400)
+
             video_details = get_video_details(video_id)
             if not video_details:
                 return JsonResponse({'error': "Failed to get video details"}, status=500)
@@ -611,11 +608,10 @@ def generate_blog(request):
             if not title:
                 return JsonResponse({'error': "Video title not found"}, status=500)
             
-            # --- USE THE NEW TRANSCRIPT FUNCTION ---
-            transcription = get_youtube_transcript(yt_link)
+            # --- USE THE NEW, OFFICIAL API TRANSCRIPT FUNCTION ---
+            transcription = get_transcript_from_api(video_id)
             if not transcription:
-                # Provide a more specific error message to the user
-                return JsonResponse({'error': "Failed to get video transcript. The video may not have captions available."}, status=500)
+                return JsonResponse({'error': "Failed to get video transcript. The video may not have captions available or they may be disabled."}, status=500)
             
             blog_content = generate_blog_from_transcription(transcription)
             if not blog_content:
