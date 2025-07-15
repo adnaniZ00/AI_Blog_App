@@ -128,8 +128,8 @@ WSGI_APPLICATION = 'ai_blog_app.wsgi.application'
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
-# ALLOWED_HOSTS = ['*']
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'ai-blog-app-afz1.onrender.com', '*']
+ALLOWED_HOSTS = ['*']
+# ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'ai-blog-app-afz1.onrender.com', '*']
 
 # This line collects static files into STATIC_ROOT directory
 # Run this during deployment
