@@ -263,6 +263,248 @@
 
 
 
+# from django.shortcuts import render, redirect
+# from django.contrib.auth.models import User
+# from django.contrib.auth import authenticate, login, logout
+# from django.contrib.auth.decorators import login_required
+# from django.views.decorators.csrf import csrf_exempt
+# from django.http import JsonResponse
+# from django.conf import settings
+# import json
+# import yt_dlp
+# import os
+# import re
+# import assemblyai as aai
+# from .models import BlogPost
+# import google.generativeai as genai
+# from django.http import HttpResponseBadRequest
+# from googleapiclient.discovery import build
+# import logging
+# import tempfile
+
+# logger = logging.getLogger(__name__)
+
+# GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+# ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
+# YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
+
+# genai.configure(api_key=GEMINI_API_KEY)
+# model = genai.GenerativeModel('gemini-1.5-flash')
+
+# @login_required
+# def index(request):
+#     if request.method != 'GET':
+#         return HttpResponseBadRequest("Only GET requests are allowed.")
+#     return render(request, 'index.html')
+
+# @csrf_exempt
+# @login_required
+# def generate_blog(request):
+#     if request.method == 'POST':
+#         try:
+#             data = json.loads(request.body)
+#             yt_link = data.get('link')
+#             if not yt_link:
+#                 return JsonResponse({'error': 'YouTube link is required.'}, status=400)
+            
+#             video_id = extract_video_id(yt_link)
+#             video_details = get_video_details(video_id)
+#             if not video_details:
+#                 return JsonResponse({'error': "Failed to get video details"}, status=500)
+            
+#             title = video_details.get('title')
+#             if not title:
+#                 return JsonResponse({'error': "Video title not found"}, status=500)
+            
+#             transcription = get_transcription(yt_link)
+#             if not transcription:
+#                 return JsonResponse({'error': "Failed to get transcript"}, status=500)
+            
+#             blog_content = generate_blog_from_transcription(transcription)
+#             if not blog_content:
+#                 return JsonResponse({'error': "Failed to generate blog article"}, status=500)
+            
+#             new_blog_article = BlogPost.objects.create(
+#                 user=request.user,
+#                 youtube_title=title,
+#                 youtube_link=yt_link,
+#                 generated_content=blog_content,
+#             )
+#             new_blog_article.save()
+            
+#             return JsonResponse({'content': blog_content})
+        
+#         except Exception as e:
+#             logger.error(f"Error in generate_blog: {e}")
+#             return JsonResponse({'error': "Internal server error"}, status=500)
+#     else:
+#         return JsonResponse({'error': 'Invalid request method'}, status=405)
+
+# def extract_video_id(url):
+#     regex = r'(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})'
+#     match = re.search(regex, url)
+#     return match.group(1) if match else None
+
+# def get_video_details(video_id):
+#     youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
+#     request = youtube.videos().list(part='snippet', id=video_id)
+#     response = request.execute()
+#     if response['items']:
+#         return response['items'][0]['snippet']
+#     return None
+
+# def sanitize_title(title):
+#     title = re.sub(r'[<>:"/\\|?*]', '', title)
+#     title = re.sub(r'\s+', ' ', title).strip()
+#     title = title.replace(' ', '_')
+#     return title
+
+# def download_audio(link):
+#     cookie_content = os.getenv('YOUTUBE_COOKIES')
+#     cookie_file_path = None
+    
+#     if cookie_content:
+#         try:
+#             with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt', encoding='utf-8') as temp_cookie_file:
+#                 temp_cookie_file.write(cookie_content)
+#                 cookie_file_path = temp_cookie_file.name
+#         except Exception as e:
+#             logger.error(f"Failed to create temporary cookie file: {e}")
+#             cookie_file_path = None
+
+#     try:
+#         ydl_opts = {
+#             'format': 'bestaudio/best',
+#             'outtmpl': '/tmp/%(title)s.%(ext)s',
+#             'postprocessors': [{
+#                 'key': 'FFmpegExtractAudio',
+#                 'preferredcodec': 'mp3',
+#                 'preferredquality': '192',
+#             }],
+#             'cookiefile': cookie_file_path,
+#             'quiet': False,
+#             # --- ADD THIS NEW OPTION ---
+#             'http_headers': {
+#                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+#                 'Accept-Language': 'en-US,en;q=0.5',
+#             },
+#             # ---------------------------
+#         }
+        
+#         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+#             info_dict = ydl.extract_info(link, download=True)
+#             downloaded_file_path = ydl.prepare_filename(info_dict).replace('.webm', '.mp3').replace('.m4a', '.mp3')
+#             return downloaded_file_path
+
+#     except Exception as e:
+#         logger.error(f"An exception occurred in yt-dlp process: {e}")
+#         raise
+
+#     finally:
+#         if cookie_file_path and os.path.exists(cookie_file_path):
+#             try:
+#                 os.remove(cookie_file_path)
+#             except Exception as e:
+#                 logger.error(f"Failed to delete temporary cookie file: {e}")
+
+# def get_transcription(link):
+#     try:
+#         audio_file = download_audio(link)
+#         if not audio_file or not os.path.exists(audio_file):
+#             raise Exception("Failed to download audio or file not found.")
+        
+#         aai.settings.api_key = ASSEMBLYAI_API_KEY
+#         transcriber = aai.Transcriber()
+#         transcript = transcriber.transcribe(audio_file)
+        
+#         if transcript.error:
+#              raise Exception(f"Transcription failed: {transcript.error}")
+
+#         if not transcript or not transcript.text:
+#             raise Exception("Transcription failed or returned empty.")
+        
+#         os.remove(audio_file)
+#         return transcript.text
+    
+#     except Exception as e:
+#         logger.error(f"Error in get_transcription: {e}")
+#         return None
+
+# def generate_blog_from_transcription(transcription):
+#     try:
+#         prompt = (
+#             f"Based on the following transcript from a YouTube video, write a comprehensive blog article. "
+#             f"The content should be well-structured and engaging, avoiding a direct YouTube video tone:\n\n{transcription}\n\nArticle:"
+#         )
+#         response = model.generate_content(
+#             prompt,
+#             generation_config=genai.types.GenerationConfig(
+#                 max_output_tokens=1000,
+#                 temperature=0.7
+#             )
+#         )
+#         if not response or not response.text:
+#             raise Exception("Failed to generate content or received empty response.")
+#         return response.text.strip()
+#     except Exception as e:
+#         logger.error(f"Error in generate_blog_from_transcription: {e}")
+#         return None
+
+# @login_required
+# def blog_list(request):
+#     blog_articles = BlogPost.objects.filter(user=request.user)
+#     return render(request, "all-blogs.html", {'blog_articles': blog_articles})
+
+# @login_required
+# def blog_details(request, pk):
+#     blog_article_detail = BlogPost.objects.get(id=pk)
+#     if request.user == blog_article_detail.user:
+#         return render(request, 'blog-details.html', {'blog_article_detail': blog_article_detail})
+#     else:
+#         return redirect('blog-list')
+
+# def user_login(request):
+#     if request.method == 'POST':
+#         username = request.POST['username']
+#         password = request.POST['password']
+#         user = authenticate(request, username=username, password=password)
+#         if user is not None:
+#             login(request, user)
+#             return redirect('index')
+#         else:
+#             error_message = "Invalid username or password"
+#             return render(request, 'login.html', {'error_message': error_message})
+#     return render(request, 'login.html')
+
+# def user_signup(request):
+#     if request.method == 'POST':
+#         username = request.POST['username']
+#         email = request.POST['email']
+#         password = request.POST['password']
+#         repeatPassword = request.POST['repeatPassword']
+#         if password == repeatPassword:
+#             try:
+#                 user = User.objects.create_user(username, email, password)
+#                 user.save()
+#                 login(request, user)
+#                 return redirect('index')
+#             except:
+#                 error_message = 'Error creating account'
+#                 return render(request, 'signup.html', {'error_message':error_message})
+#         else:
+#             error_message = 'Password do not match'
+#             return render(request, 'signup.html', {'error_message':error_message})
+#     return render(request, 'signup.html')
+
+# @login_required
+# def user_logout(request):
+#     logout(request)
+#     return redirect('login')
+
+
+
+
+
 from django.shortcuts import render, redirect
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login, logout
@@ -274,22 +516,75 @@ import json
 import yt_dlp
 import os
 import re
-import assemblyai as aai
+# No longer needed: import assemblyai as aai
 from .models import BlogPost
 import google.generativeai as genai
 from django.http import HttpResponseBadRequest
 from googleapiclient.discovery import build
 import logging
-import tempfile
 
 logger = logging.getLogger(__name__)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
+# No longer needed: ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
+
+# --- NEW FUNCTION TO GET TRANSCRIPT DIRECTLY ---
+def get_youtube_transcript(link):
+    """
+    Downloads the auto-generated subtitle/transcript for a YouTube video.
+    """
+    logger.info(f"Attempting to get transcript for link: {link}")
+    
+    ydl_opts = {
+        'writesubtitles': True,      # Tell yt-dlp to download subtitles
+        'writeautomaticsub': True,   # Download auto-generated subtitles
+        'subtitleslangs': ['en'],    # We want English subtitles
+        'skip_download': True,       # VERY IMPORTANT: Don't download the video itself
+        'outtmpl': '/tmp/%(id)s',     # Save subtitle file to /tmp directory with video ID as name
+        'quiet': False,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(link, download=True)
+            video_id = info.get('id')
+            if not video_id:
+                logger.error("Could not extract video ID from yt-dlp info.")
+                return None
+            
+            # The expected path of the downloaded subtitle file (.vtt format)
+            subtitle_path = f"/tmp/{video_id}.en.vtt"
+            logger.info(f"Checking for subtitle file at: {subtitle_path}")
+
+            if os.path.exists(subtitle_path):
+                with open(subtitle_path, 'r', encoding='utf-8') as f:
+                    # VTT files have metadata, we need to strip it to get the plain text.
+                    lines = f.readlines()
+                    transcript_lines = []
+                    for line in lines:
+                        # Skip metadata, timestamps, and empty lines
+                        if '-->' in line or line.strip().isdigit() or line.strip() == 'WEBVTT' or not line.strip():
+                            continue
+                        transcript_lines.append(line.strip())
+                
+                # Clean up the subtitle file immediately
+                os.remove(subtitle_path)
+                
+                # Join the lines to form the full transcript
+                full_transcript = " ".join(transcript_lines)
+                logger.info("Successfully extracted transcript from VTT file.")
+                return full_transcript
+            else:
+                logger.error(f"Subtitle file not found at the expected path after yt-dlp run.")
+                return None
+    except Exception as e:
+        logger.error(f"An exception occurred in get_youtube_transcript: {e}")
+        return None
+
 
 @login_required
 def index(request):
@@ -316,13 +611,15 @@ def generate_blog(request):
             if not title:
                 return JsonResponse({'error': "Video title not found"}, status=500)
             
-            transcription = get_transcription(yt_link)
+            # --- USE THE NEW TRANSCRIPT FUNCTION ---
+            transcription = get_youtube_transcript(yt_link)
             if not transcription:
-                return JsonResponse({'error': "Failed to get transcript"}, status=500)
+                # Provide a more specific error message to the user
+                return JsonResponse({'error': "Failed to get video transcript. The video may not have captions available."}, status=500)
             
             blog_content = generate_blog_from_transcription(transcription)
             if not blog_content:
-                return JsonResponse({'error': "Failed to generate blog article"}, status=500)
+                return JsonResponse({'error': "Failed to generate blog article from transcript."}, status=500)
             
             new_blog_article = BlogPost.objects.create(
                 user=request.user,
@@ -336,9 +633,10 @@ def generate_blog(request):
         
         except Exception as e:
             logger.error(f"Error in generate_blog: {e}")
-            return JsonResponse({'error': "Internal server error"}, status=500)
+            return JsonResponse({'error': "An internal server error occurred."}, status=500)
     else:
         return JsonResponse({'error': 'Invalid request method'}, status=405)
+
 
 def extract_video_id(url):
     regex = r'(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})'
@@ -352,83 +650,6 @@ def get_video_details(video_id):
     if response['items']:
         return response['items'][0]['snippet']
     return None
-
-def sanitize_title(title):
-    title = re.sub(r'[<>:"/\\|?*]', '', title)
-    title = re.sub(r'\s+', ' ', title).strip()
-    title = title.replace(' ', '_')
-    return title
-
-def download_audio(link):
-    cookie_content = os.getenv('YOUTUBE_COOKIES')
-    cookie_file_path = None
-    
-    if cookie_content:
-        try:
-            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt', encoding='utf-8') as temp_cookie_file:
-                temp_cookie_file.write(cookie_content)
-                cookie_file_path = temp_cookie_file.name
-        except Exception as e:
-            logger.error(f"Failed to create temporary cookie file: {e}")
-            cookie_file_path = None
-
-    try:
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': '/tmp/%(title)s.%(ext)s',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-            'cookiefile': cookie_file_path,
-            'quiet': False,
-            # --- ADD THIS NEW OPTION ---
-            'http_headers': {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-                'Accept-Language': 'en-US,en;q=0.5',
-            },
-            # ---------------------------
-        }
-        
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(link, download=True)
-            downloaded_file_path = ydl.prepare_filename(info_dict).replace('.webm', '.mp3').replace('.m4a', '.mp3')
-            return downloaded_file_path
-
-    except Exception as e:
-        logger.error(f"An exception occurred in yt-dlp process: {e}")
-        raise
-
-    finally:
-        if cookie_file_path and os.path.exists(cookie_file_path):
-            try:
-                os.remove(cookie_file_path)
-            except Exception as e:
-                logger.error(f"Failed to delete temporary cookie file: {e}")
-
-def get_transcription(link):
-    try:
-        audio_file = download_audio(link)
-        if not audio_file or not os.path.exists(audio_file):
-            raise Exception("Failed to download audio or file not found.")
-        
-        aai.settings.api_key = ASSEMBLYAI_API_KEY
-        transcriber = aai.Transcriber()
-        transcript = transcriber.transcribe(audio_file)
-        
-        if transcript.error:
-             raise Exception(f"Transcription failed: {transcript.error}")
-
-        if not transcript or not transcript.text:
-            raise Exception("Transcription failed or returned empty.")
-        
-        os.remove(audio_file)
-        return transcript.text
-    
-    except Exception as e:
-        logger.error(f"Error in get_transcription: {e}")
-        return None
 
 def generate_blog_from_transcription(transcription):
     try:
