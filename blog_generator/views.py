@@ -312,7 +312,6 @@ def generate_blog(request):
             if not yt_link:
                 return JsonResponse({'error': 'YouTube link is required.'}, status=400)
             
-            # Get YouTube video details
             video_id = extract_video_id(yt_link)
             video_details = get_video_details(video_id)
             if not video_details:
@@ -322,17 +321,14 @@ def generate_blog(request):
             if not title:
                 return JsonResponse({'error': "Video title not found"}, status=500)
             
-            # Get transcription
             transcription = get_transcription(yt_link)
             if not transcription:
                 return JsonResponse({'error': "Failed to get transcript"}, status=500)
             
-            # Generate blog content from transcription
             blog_content = generate_blog_from_transcription(transcription)
             if not blog_content:
                 return JsonResponse({'error': "Failed to generate blog article"}, status=500)
             
-            # Save blog article to database
             new_blog_article = BlogPost.objects.create(
                 user=request.user,
                 youtube_title=title,
@@ -341,7 +337,6 @@ def generate_blog(request):
             )
             new_blog_article.save()
             
-            # Return blog article as a response
             return JsonResponse({'content': blog_content})
         
         except Exception as e:
@@ -352,7 +347,6 @@ def generate_blog(request):
 
 
 def extract_video_id(url):
-    # Regex to extract the video ID from a YouTube URL
     regex = r'(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})'
     match = re.search(regex, url)
     return match.group(1) if match else None
@@ -366,7 +360,6 @@ def get_video_details(video_id):
     return None
 
 def sanitize_title(title):
-    # Remove special characters and replace spaces with underscores
     title = re.sub(r'[<>:"/\\|?*]', '', title)
     title = re.sub(r'\s+', ' ', title).strip()
     title = title.replace(' ', '_')
@@ -376,81 +369,101 @@ def download_audio(link):
     cookie_content = os.getenv('YOUTUBE_COOKIES')
     cookie_file_path = None
     
-    # --- Create a temporary cookie file if cookies are provided ---
+    # --- DEBUGGING LOGS ---
+    if cookie_content:
+        logger.info("DEBUG: Found YOUTUBE_COOKIES environment variable.")
+        logger.info(f"DEBUG: Cookie content starts with: {cookie_content[:50]}")
+    else:
+        logger.warning("DEBUG: YOUTUBE_COOKIES environment variable not found or is empty.")
+    # ----------------------
+
     if cookie_content:
         try:
-            # Create a temporary file to store the cookie data
             with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt', encoding='utf-8') as temp_cookie_file:
                 temp_cookie_file.write(cookie_content)
                 cookie_file_path = temp_cookie_file.name
+                # --- DEBUGGING LOGS ---
+                logger.info(f"DEBUG: Successfully created temporary cookie file at: {cookie_file_path}")
+                # ----------------------
         except Exception as e:
-            logger.error(f"Failed to create temporary cookie file: {e}")
-            # Continue without cookies if file creation fails
+            logger.error(f"DEBUG: Failed to create temporary cookie file: {e}")
             cookie_file_path = None
-    # ----------------------------------------------------------------
 
     try:
-        # Extract YouTube video info
-        with yt_dlp.YoutubeDL({'quiet': True, 'cookiefile': cookie_file_path}) as ydl:
-            info_dict = ydl.extract_info(link, download=False)
-            title = info_dict.get('title', 'audio')
-            sanitized_title = sanitize_title(title)
-
-        temp_dir = '/tmp'
-        audio_path = os.path.join(temp_dir, f'{sanitized_title}.mp3')
-
         ydl_opts = {
             'format': 'bestaudio/best',
-            'outtmpl': os.path.join(temp_dir, f'{sanitized_title}.%(ext)s'),
+            'outtmpl': '/tmp/%(title)s.%(ext)s', # Simplified output template
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
                 'preferredquality': '192',
             }],
-            'cookiefile': cookie_file_path, # Use the cookie file here as well
+            'cookiefile': cookie_file_path,
+            'quiet': False, # Set to False to get more verbose output from yt-dlp
         }
         
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([link])
-            return audio_path
+            # --- DEBUGGING LOGS ---
+            logger.info("DEBUG: Initializing yt-dlp with options.")
+            # ----------------------
+            info_dict = ydl.extract_info(link, download=True)
+            # When download=True, the filename is in the info_dict
+            sanitized_title = sanitize_title(info_dict.get('title', 'audio'))
+            # The actual path where yt-dlp saved the file
+            downloaded_file_path = ydl.prepare_filename(info_dict).replace('.webm', '.mp3').replace('.m4a', '.mp3')
+            logger.info(f"DEBUG: yt-dlp finished. Audio should be at: {downloaded_file_path}")
+            return downloaded_file_path
+
+    except Exception as e:
+        logger.error(f"DEBUG: An exception occurred in yt-dlp process: {e}")
+        raise # Re-raise the exception to be caught by the outer try-except block
 
     finally:
-        # --- Clean up the temporary cookie file ---
         if cookie_file_path and os.path.exists(cookie_file_path):
             try:
                 os.remove(cookie_file_path)
+                logger.info(f"DEBUG: Successfully deleted temporary cookie file: {cookie_file_path}")
             except Exception as e:
-                logger.error(f"Failed to delete temporary cookie file: {e}")
-        # ----------------------------------------
+                logger.error(f"DEBUG: Failed to delete temporary cookie file: {e}")
+
 
 def get_transcription(link):
     try:
         audio_file = download_audio(link)
-        if not audio_file:
-            raise Exception("Failed to download audio.")
+        if not audio_file or not os.path.exists(audio_file):
+            logger.error(f"DEBUG: download_audio did not return a valid file path. Got: {audio_file}")
+            raise Exception("Failed to download audio or file not found.")
         
+        logger.info(f"DEBUG: Starting transcription for file: {audio_file}")
         aai.settings.api_key = ASSEMBLYAI_API_KEY
         transcriber = aai.Transcriber()
         transcript = transcriber.transcribe(audio_file)
         
+        if transcript.error:
+             logger.error(f"DEBUG: AssemblyAI transcription error: {transcript.error}")
+             raise Exception(f"Transcription failed: {transcript.error}")
+
         if not transcript or not transcript.text:
             raise Exception("Transcription failed or returned empty.")
         
+        logger.info("DEBUG: Transcription successful.")
+        # Clean up the downloaded audio file
+        os.remove(audio_file)
+        logger.info(f"DEBUG: Cleaned up audio file: {audio_file}")
         return transcript.text
     
     except Exception as e:
         logger.error(f"Error in get_transcription: {e}")
         return None
 
+# (The rest of your views.py functions remain the same)
+# ... (generate_blog_from_transcription, blog_list, etc.) ...
 def generate_blog_from_transcription(transcription):
     try:
-        # Set up the prompt for Generative AI
         prompt = (
             f"Based on the following transcript from a YouTube video, write a comprehensive blog article. "
             f"The content should be well-structured and engaging, avoiding a direct YouTube video tone:\n\n{transcription}\n\nArticle:"
         )
-        
-        # Call the Generative API to generate blog content
         response = model.generate_content(
             prompt,
             generation_config=genai.types.GenerationConfig(
@@ -458,12 +471,9 @@ def generate_blog_from_transcription(transcription):
                 temperature=0.7
             )
         )
-        
         if not response or not response.text:
             raise Exception("Failed to generate content or received empty response.")
-        
         return response.text.strip()
-    
     except Exception as e:
         logger.error(f"Error in generate_blog_from_transcription: {e}")
         return None
@@ -485,7 +495,6 @@ def user_login(request):
     if request.method == 'POST':
         username = request.POST['username']
         password = request.POST['password']
-
         user = authenticate(request, username=username, password=password)
         if user is not None:
             login(request, user)
@@ -493,7 +502,6 @@ def user_login(request):
         else:
             error_message = "Invalid username or password"
             return render(request, 'login.html', {'error_message': error_message})
-        
     return render(request, 'login.html')
 
 def user_signup(request):
@@ -502,7 +510,6 @@ def user_signup(request):
         email = request.POST['email']
         password = request.POST['password']
         repeatPassword = request.POST['repeatPassword']
-
         if password == repeatPassword:
             try:
                 user = User.objects.create_user(username, email, password)
@@ -515,7 +522,6 @@ def user_signup(request):
         else:
             error_message = 'Password do not match'
             return render(request, 'signup.html', {'error_message':error_message})
-        
     return render(request, 'signup.html')
 
 @login_required
