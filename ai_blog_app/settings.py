@@ -111,16 +111,16 @@ WSGI_APPLICATION = 'ai_blog_app.wsgi.application'
 
 # Database configuration for local PostgreSQL
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'postgres',  # Replace with the name of your local DB
-        'USER': 'postgres',  # Replace with your local PostgreSQL username (usually 'postgres')
-        'PASSWORD': 'mak@123',  # Replace with your local password
-        'HOST': 'localhost',  # Host is localhost for local PostgreSQL
-        'PORT': '5432',  # Default port for PostgreSQL
-    }
-}
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': 'postgres',  # Replace with the name of your local DB
+#         'USER': 'postgres',  # Replace with your local PostgreSQL username (usually 'postgres')
+#         'PASSWORD': 'mak@123',  # Replace with your local password
+#         'HOST': 'localhost',  # Host is localhost for local PostgreSQL
+#         'PORT': '5432',  # Default port for PostgreSQL
+#     }
+# }
 
 
 
@@ -128,7 +128,8 @@ DATABASES = {
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
-ALLOWED_HOSTS = ['*']
+# ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', 'ai-blog-app-afz1.onrender.com', '*']
 
 # This line collects static files into STATIC_ROOT directory
 # Run this during deployment
