@@ -774,17 +774,17 @@ def generate_blog(request):
         try:
             data = json.loads(request.body)
             transcript = data.get('transcript')
+            # --- NEW: Get the optional link ---
+            yt_link = data.get('link', 'N/A') # Default to 'N/A' if not provided
 
             if not transcript:
                 return JsonResponse({'error': 'A transcript text is required.'}, status=400)
             
-            # --- NEW: Generate title from transcript ---
             logger.info("Generating title from transcript...")
             title_prompt = f"Based on the following transcript, generate a concise and compelling blog post title. The title should be no more than 10 words. Do not add quotation marks or any other formatting around the title.\n\nTranscript: {transcript}\n\nTitle:"
             title_response = model.generate_content(title_prompt)
-            generated_title = title_response.text.strip().replace('"', '') # Clean up title
+            generated_title = title_response.text.strip().replace('"', '')
             logger.info(f"Generated title: {generated_title}")
-            # -----------------------------------------
 
             blog_content = generate_blog_from_transcription(transcript)
             if not blog_content:
@@ -792,8 +792,9 @@ def generate_blog(request):
             
             new_blog_article = BlogPost.objects.create(
                 user=request.user,
-                youtube_title=generated_title, # Use the auto-generated title
-                youtube_link="N/A",
+                youtube_title=generated_title,
+                # --- NEW: Save the provided link ---
+                youtube_link=yt_link,
                 generated_content=blog_content,
             )
             new_blog_article.save()
@@ -881,4 +882,5 @@ def user_signup(request):
 def user_logout(request):
     logout(request)
     return redirect('login')
+
 

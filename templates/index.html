@@ -91,7 +91,7 @@
 
         <br />
 
-        <!-- NEW SIMPLIFIED FORM SECTION -->
+        <!-- UPDATED FORM SECTION -->
         <div>
           <div class="mb-4">
             <label
@@ -105,6 +105,18 @@
               placeholder="Paste the full transcript text here..."
               class="w-full p-2 border border-blue-400 rounded-md"
             ></textarea>
+          </div>
+
+          <div class="mb-4">
+            <label for="youtubeLink" class="block text-xl mb-2 font-semibold"
+              >YouTube Link (Optional)</label
+            >
+            <input
+              id="youtubeLink"
+              type="url"
+              placeholder="Paste the original YouTube link for reference..."
+              class="w-full p-2 border border-gray-400 rounded-md"
+            />
           </div>
 
           <button
@@ -135,9 +147,10 @@
       document
         .getElementById("generateBlogButton")
         .addEventListener("click", async () => {
-          // Get value from the transcript textarea
+          // Get values from the transcript and optional link fields
           const youtubeTranscript =
             document.getElementById("youtubeTranscript").value;
+          const youtubeLink = document.getElementById("youtubeLink").value;
           const blogContent = document.getElementById("blogContent");
 
           // Check if the transcript is provided
@@ -154,9 +167,10 @@
                   "Content-Type": "application/json",
                   "X-CSRFToken": "{{ csrf_token }}",
                 },
-                // Send only the transcript
+                // Send both the transcript and the optional link
                 body: JSON.stringify({
                   transcript: youtubeTranscript,
+                  link: youtubeLink,
                 }),
               });
 
@@ -173,7 +187,6 @@
             }
             document.getElementById("loading-circle").style.display = "none";
           } else {
-            // Updated alert message
             alert("Please paste the transcript before generating.");
           }
         });
