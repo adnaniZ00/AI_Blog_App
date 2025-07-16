@@ -77,31 +77,60 @@
             Welcome to the AI Blog Generator
           </h2>
           <p class="text-gray-700">
-            Generate high-quality blog articles from YouTube videos using
-            artificial intelligence. Simply enter the link to the YouTube video
-            below and let the AI create the content for you!
+            Generate high-quality blog articles from YouTube video transcripts.
+            Simply find a video on YouTube, click "Show transcript", copy the
+            text, and paste it below!
           </p>
         </div>
 
         <br />
 
-        <!-- Youtube section -->
+        <!-- UPDATED FORM SECTION -->
         <div>
-          <h2 class="text-xl mb-4 font-semibold">Enter Youtube Video Link</h2>
-          <div class="flex space-x-4">
+          <div class="mb-4">
+            <label
+              for="youtubeTranscript"
+              class="block text-xl mb-2 font-semibold"
+              >Paste YouTube Transcript Here</label
+            >
+            <textarea
+              id="youtubeTranscript"
+              rows="10"
+              placeholder="Paste the full transcript text here..."
+              class="w-full p-2 border border-blue-400 rounded-md"
+            ></textarea>
+          </div>
+
+          <div class="mb-4">
+            <label for="blogTitle" class="block text-xl mb-2 font-semibold"
+              >Blog Post Title (Optional)</label
+            >
+            <input
+              id="blogTitle"
+              type="text"
+              placeholder="Leave blank to auto-generate a title..."
+              class="w-full p-2 border border-gray-400 rounded-md"
+            />
+          </div>
+
+          <div class="mb-4">
+            <label for="youtubeLink" class="block text-xl mb-2 font-semibold"
+              >YouTube Link (Optional)</label
+            >
             <input
               id="youtubeLink"
               type="url"
-              placeholder="Paste Youtube Link..."
-              class="flex-grow p-2 border border-blue-400 rounded-l-md"
+              placeholder="Paste the original YouTube link for reference..."
+              class="w-full p-2 border border-gray-400 rounded-md"
             />
-            <button
-              id="generateBlogButton"
-              class="bg-blue-600 text-white px-4 py-2 rounded-r-md hover:bg-blue-700 transition-colors"
-            >
-              Generate
-            </button>
           </div>
+
+          <button
+            id="generateBlogButton"
+            class="w-full bg-blue-600 text-white px-4 py-3 rounded-md hover:bg-blue-700 transition-colors font-semibold"
+          >
+            Generate Article
+          </button>
         </div>
 
         <!-- section for loading circle -->
@@ -131,10 +160,13 @@
       document
         .getElementById("generateBlogButton")
         .addEventListener("click", async () => {
+          const youtubeTranscript =
+            document.getElementById("youtubeTranscript").value;
+          const blogTitle = document.getElementById("blogTitle").value;
           const youtubeLink = document.getElementById("youtubeLink").value;
           const blogContent = document.getElementById("blogContent");
 
-          if (youtubeLink) {
+          if (youtubeTranscript) {
             document.getElementById("loading-circle").style.display = "block";
             blogContent.innerHTML = "";
 
@@ -147,7 +179,11 @@
                   "Content-Type": "application/json",
                   "X-CSRFToken": "{{ csrf_token }}",
                 },
-                body: JSON.stringify({ link: youtubeLink }),
+                body: JSON.stringify({
+                  transcript: youtubeTranscript,
+                  title: blogTitle,
+                  link: youtubeLink,
+                }),
               });
 
               const data = await response.json();
@@ -163,7 +199,7 @@
             }
             document.getElementById("loading-circle").style.display = "none";
           } else {
-            alert("Please enter a YouTube link.");
+            alert("Please paste the transcript before generating.");
           }
         });
     </script>

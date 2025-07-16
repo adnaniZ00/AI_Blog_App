@@ -893,13 +893,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 import json
 import os
-import re 
 from .models import BlogPost
 import google.generativeai as genai
 from django.http import HttpResponseBadRequest
 import logging
-# The new, specialized library
-from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
 
 logger = logging.getLogger(__name__)
 
@@ -907,14 +904,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel('gemini-1.5-flash')
-
-
-def get_video_id(url):
-    """Extracts the video ID from a YouTube URL."""
-    # Regex to find video ID in various YouTube URL formats
-    regex = r'(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})'
-    match = re.search(regex, url)
-    return match.group(1) if match else None
 
 
 @login_required
@@ -929,41 +918,30 @@ def generate_blog(request):
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
-            yt_link = data.get('link')
+            # We now expect 'title' and 'transcript' from the front-end
+            title = data.get('title')
+            transcript = data.get('transcript')
+            yt_link = data.get('link', 'N/A') # Get optional link
 
-            if not yt_link:
-                return JsonResponse({'error': 'A YouTube link is required.'}, status=400)
+            if not transcript:
+                return JsonResponse({'error': 'A transcript text is required.'}, status=400)
             
-            video_id = get_video_id(yt_link)
-            if not video_id:
-                return JsonResponse({'error': 'Invalid YouTube link provided.'}, status=400)
-
-            try:
-                # Fetch the transcript using the new library
-                transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
-                transcript_text = " ".join([item['text'] for item in transcript_list])
-                logger.info(f"Successfully fetched transcript for video ID: {video_id}")
-            except (TranscriptsDisabled, NoTranscriptFound):
-                logger.error(f"No transcript found for video ID: {video_id}")
-                return JsonResponse({'error': "Could not find a transcript for this video. It may be disabled or unavailable."}, status=404)
-            except Exception as e:
-                logger.error(f"An unexpected error occurred fetching transcript: {e}")
-                return JsonResponse({'error': "An error occurred while fetching the transcript."}, status=500)
-
-            # Generate title from the transcript
-            title_prompt = f"Based on the following transcript, generate a concise and compelling blog post title. The title should be no more than 10 words. Do not add quotation marks.\n\nTranscript: {transcript_text}\n\nTitle:"
-            title_response = model.generate_content(title_prompt)
-            generated_title = title_response.text.strip().replace('"', '')
+            # If title is not provided, generate it
+            if not title:
+                logger.info("Generating title from transcript...")
+                title_prompt = f"Based on the following transcript, generate a concise and compelling blog post title. The title should be no more than 10 words. Do not add quotation marks.\n\nTranscript: {transcript}\n\nTitle:"
+                title_response = model.generate_content(title_prompt)
+                title = title_response.text.strip().replace('"', '')
+                logger.info(f"Generated title: {title}")
             
-            # Generate the blog content
-            blog_content = generate_blog_from_transcription(transcript_text)
+            blog_content = generate_blog_from_transcription(transcript)
             if not blog_content:
                 return JsonResponse({'error': "Failed to generate blog article from transcript."}, status=500)
             
             # Save the new blog post
             new_blog_article = BlogPost.objects.create(
                 user=request.user,
-                youtube_title=generated_title,
+                youtube_title=title,
                 youtube_link=yt_link,
                 generated_content=blog_content,
             )
@@ -998,6 +976,7 @@ def generate_blog_from_transcription(transcription):
         logger.error(f"Error in generate_blog_from_transcription: {e}")
         return None
 
+# ... (All other views like login, signup, blog_list etc. remain the same)
 @login_required
 def blog_list(request):
     blog_articles = BlogPost.objects.filter(user=request.user)
