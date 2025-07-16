@@ -893,6 +893,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse
 import json
 import os
+import re 
 from .models import BlogPost
 import google.generativeai as genai
 from django.http import HttpResponseBadRequest
@@ -997,7 +998,6 @@ def generate_blog_from_transcription(transcription):
         logger.error(f"Error in generate_blog_from_transcription: {e}")
         return None
 
-# ... (All other views like login, signup, blog_list etc. remain the same)
 @login_required
 def blog_list(request):
     blog_articles = BlogPost.objects.filter(user=request.user)
@@ -1048,3 +1048,4 @@ def user_signup(request):
 def user_logout(request):
     logout(request)
     return redirect('login')
+
